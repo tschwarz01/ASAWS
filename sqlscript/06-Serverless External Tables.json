@@ -1,0 +1,20 @@
+{
+	"name": "06-Serverless External Tables",
+	"properties": {
+		"folder": {
+			"name": "Day 02 - Serverless"
+		},
+		"content": {
+			"query": "/* Serverless External Tables\n\nFeatures\n- Create a query-able table in a Serverless SQL Pools database to abstract the connection to the data source\n- Must define the column names and data types (schema information) at view creation time\n- Cannot use the filepath() function to partition prune, any WHERE filtering is done over the whole source data\n\nScenarios\n- Connecting to source data when partition pruning is not required\n- Where source data can accept filter pushdown such as Parquet to mitigate no partition pruning\n- Smaller datasets such as reference data or dimensions\n- Write the results of a SELECT statement back to Azure Storage using CETAS\n\n\nExample\nSee the last query in script 01-Create DB and Query Data Source\n*/\n\n\n\n",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "master",
+				"poolName": "Built-in"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}

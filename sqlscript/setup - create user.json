@@ -1,0 +1,20 @@
+{
+	"name": "setup - create user",
+	"properties": {
+		"folder": {
+			"name": "Setup"
+		},
+		"content": {
+			"query": "\nCREATE USER [sqluser@azdemo.cloud] FROM EXTERNAL PROVIDER;\n\n--Grant role to the user in the database\nEXEC sp_addrolemember 'db_datareader', 'sqluser@azdemo.cloud';\n\nGRANT VIEW DATABASE STATE TO [sqluser@azdemo.cloud];",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "sqlu3qtrzl",
+				"poolName": "sqlu3qtrzl"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}

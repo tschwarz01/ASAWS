@@ -1,0 +1,20 @@
+{
+	"name": "05-Serverless Views",
+	"properties": {
+		"folder": {
+			"name": "Day 02 - Serverless"
+		},
+		"content": {
+			"query": "/* VIEWS in Serverless\nhttps://www.serverlesssql.com/external-tables-vs-views-which-to-use/\nFeatures:\n- Create a query-able view in a Serverless SQL Pools database to abstract the connection to the data source\n- No need to define the columns or data types (schema information) at view creation time\n- Can embed the filepath() function as a column to allow source folder partition pruning\n\nScenarios:\n- Needing to quickly create query-able objects over source data without explicitly stating schema\n- When source data is partitioned and is large enough that partition pruning is required\n- When only a specific set of columns are required to be exposed from the data source\n*/\n\n\n\n/* Create a view without specifying schema */\nCREATE VIEW vwOrdersNoDatasource\nAS\nSELECT *\nFROM OPENROWSET(\n    BULK 'https://datalakeu3qtrzl.dfs.core.windows.net/data/datasets/orders.csv',\n    FORMAT = 'CSV',\n    PARSER_VERSION = '2.0',\n    HEADER_ROW = TRUE,\n    FIELDTERMINATOR =',' ) AS fct;\n\nSELECT TOP(10) * FROM vwOrdersNoDatasource;\n\n\n/* CREATE VIEW & SPECIFY COLUMNS */\nCREATE VIEW vwOrdersColumns\nAS\nSELECT id,\n        city_id,\n        quantity\nFROM OPENROWSET(\n    BULK 'https://datalakeu3qtrzl.dfs.core.windows.net/data/datasets/orders.csv',\n    FORMAT = 'CSV',\n    PARSER_VERSION = '2.0',\n    HEADER_ROW = TRUE,\n    FIELDTERMINATOR =',' ) AS fct\n\nSELECT TOP(10) * FROM vwOrdersColumns;\n\n\n/* Optimize view by specifying data types */\nCREATE VIEW vwOrdersWith\nAS\nSELECT *\nFROM OPENROWSET(\n    BULK 'https://datalakeu3qtrzl.dfs.core.windows.net/data/datasets/orders.csv',\n    FORMAT = 'CSV',\n    PARSER_VERSION = '2.0',\n    HEADER_ROW = TRUE,\n    FIELDTERMINATOR =',' ) \n    WITH (\n        id INT,\n        city_id INT,\n        quantity BIGINT\n        ) AS fct\n\nSELECT TOP(10) * FROM vwOrdersWith",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "master",
+				"poolName": "Built-in"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}

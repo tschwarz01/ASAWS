@@ -1,0 +1,810 @@
+{
+	"name": "Materialized Views",
+	"properties": {
+		"nbformat": 4,
+		"nbformat_minor": 2,
+		"sessionProperties": {
+			"driverMemory": "28g",
+			"driverCores": 4,
+			"executorMemory": "28g",
+			"executorCores": 4,
+			"numExecutors": 2,
+			"runAsWorkspaceSystemIdentity": false,
+			"conf": {
+				"spark.dynamicAllocation.enabled": "false",
+				"spark.dynamicAllocation.minExecutors": "2",
+				"spark.dynamicAllocation.maxExecutors": "2",
+				"spark.autotune.trackingId": "229b23aa-89fd-4727-8fec-18bb775a8249"
+			}
+		},
+		"metadata": {
+			"saveOutput": true,
+			"synapse_widget": {
+				"version": "0.1"
+			},
+			"enableDebugMode": false,
+			"kernelspec": {
+				"name": "synapse_sparksql",
+				"display_name": "sql"
+			},
+			"language_info": {
+				"name": "sql"
+			},
+			"sessionKeepAliveTimeout": 30
+		},
+		"cells": [
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "f7478a6f-ff48-4b26-afb6-17d35da49fbe"
+				},
+				"source": [
+					"## **materialized views**\n",
+					"\n",
+					"As opposed to a standard view, a materialized view pre-computes, stores, and maintains its data in a Synapse SQL pool just like a table. Here is a basic comparison between standard and materialized views:\n",
+					"\n",
+					"| Comparison | View | Materialized View |\n",
+					"| :-- | :-- | :-- |\n",
+					"| View definition | Stored in Azure data warehouse. | Stored in Azure data warehouse. |\n",
+					"| View content | Generated each time when the view is used. | Pre-processed and stored in Azure data warehouse during view creation. Updated as data is added to the underlying tables. |\n",
+					"| Data refresh | Always updated | Always updated |\n",
+					"| Speed to retrieve view data from complex queries | Slow | Fast |\n",
+					"| Extra storage | No | Yes |\n",
+					"| Syntax | CREATE VIEW | CREATE MATERIALIZED VIEW AS SELECT |\n",
+					"\n",
+					"1. Execute the following query to get an approximation of its execution time:"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"azdata_cell_guid": "8474d1b4-f676-4939-b3cf-a6f20a13cfb7",
+					"language": "sql"
+				},
+				"source": [
+					"/*EXPLAIN WITH_RECOMMENDATIONS*/\r\n",
+					"SELECT TOP 1000 * FROM\r\n",
+					"(\r\n",
+					"    SELECT\r\n",
+					"        S.CustomerId\r\n",
+					"        ,D.Year\r\n",
+					"        ,D.Quarter\r\n",
+					"        ,SUM(S.TotalAmount) as TotalAmount\r\n",
+					"    FROM\r\n",
+					"        [wwi_perf].[Sale_Partition02] S\r\n",
+					"        join [wwi].[Date] D on\r\n",
+					"            S.TransactionDateId = D.DateId\r\n",
+					"    GROUP BY\r\n",
+					"        S.CustomerId\r\n",
+					"        ,D.Year\r\n",
+					"        ,D.Quarter\r\n",
+					") T"
+				],
+				"execution_count": 6
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"azdata_cell_guid": "4b317c4b-adae-4178-874a-bc2242e0378a",
+					"language": "sql"
+				},
+				"source": [
+					"SELECT TOP 1000 * FROM\r\n",
+					"(\r\n",
+					"    SELECT\r\n",
+					"        S.CustomerId\r\n",
+					"        ,D.Year\r\n",
+					"        ,D.Month\r\n",
+					"        ,SUM(S.ProfitAmount) as TotalProfit\r\n",
+					"    FROM\r\n",
+					"        [wwi_perf].[Sale_Partition02] S\r\n",
+					"        join [wwi].[Date] D on\r\n",
+					"            S.TransactionDateId = D.DateId\r\n",
+					"    GROUP BY\r\n",
+					"        S.CustomerId\r\n",
+					"        ,D.Year\r\n",
+					"        ,D.Month\r\n",
+					") T"
+				],
+				"execution_count": 3
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "f7ecd1fd-377f-4dbc-9c80-b3662070c514"
+				},
+				"source": [
+					"<span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">Create a materialized view that can support both queries above:</span>"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"azdata_cell_guid": "f9d66847-6b8f-4840-9f6d-c13e2199728a",
+					"language": "sql"
+				},
+				"source": [
+					"CREATE MATERIALIZED VIEW\r\n",
+					"    wwi_perf.mvCustomerSales\r\n",
+					"WITH\r\n",
+					"(\r\n",
+					"    DISTRIBUTION = HASH( CustomerId )\r\n",
+					")\r\n",
+					"AS\r\n",
+					"SELECT\r\n",
+					"    S.CustomerId\r\n",
+					"    ,D.Year\r\n",
+					"    ,D.Quarter\r\n",
+					"    ,D.Month\r\n",
+					"    ,SUM(S.TotalAmount) as TotalAmount\r\n",
+					"    ,SUM(S.ProfitAmount) as TotalProfit\r\n",
+					"FROM\r\n",
+					"    [wwi_perf].[Sale_Partition02] S\r\n",
+					"    join [wwi].[Date] D on\r\n",
+					"        S.TransactionDateId = D.DateId\r\n",
+					"GROUP BY\r\n",
+					"    S.CustomerId\r\n",
+					"    ,D.Year\r\n",
+					"    ,D.Quarter\r\n",
+					"    ,D.Month"
+				],
+				"execution_count": 7
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "14c47ce8-4ee4-443a-b502-32a52b446205"
+				},
+				"source": [
+					"<span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">Run the following query to get an estimated execution plan (do not select&nbsp;</span> `Query Plan` <span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">&nbsp;from the toolbar as it will try do download the query plan and open it in SQL Server Management Studio):</span>"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "af804eb6-2edc-4334-8889-e79956bf008f"
+				},
+				"source": [
+					"EXPLAIN\r\n",
+					"SELECT TOP 1000 * FROM\r\n",
+					"(\r\n",
+					"    SELECT\r\n",
+					"        S.CustomerId\r\n",
+					"        ,D.Year\r\n",
+					"        ,D.Quarter\r\n",
+					"        ,SUM(S.TotalAmount) as TotalAmount\r\n",
+					"    FROM\r\n",
+					"        [wwi_perf].[Sale_Partition02] S\r\n",
+					"        join [wwi].[Date] D on\r\n",
+					"            S.TransactionDateId = D.DateId\r\n",
+					"    GROUP BY\r\n",
+					"        S.CustomerId\r\n",
+					"        ,D.Year\r\n",
+					"        ,D.Quarter\r\n",
+					") T"
+				],
+				"execution_count": 8
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "d96e6dce-8c1a-4767-a830-5b9c68e3002f"
+				},
+				"source": [
+					"The resulting execution plan shows how the newly created materialized view is used to optimize the execution. Note the `FROM [SQLPool01].[wwi_perf].[mvCustomerSales]` in the `<dsql_operations>` element.\n",
+					"\n",
+					"```xml\n",
+					"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n",
+					"<dsql_query number_nodes=\"1\" number_distributions=\"60\" number_distributions_per_node=\"60\">\n",
+					"<sql>SELECT TOP 1000 * FROM (SELECTS.CustomerId,D.Year,D.Quarter,SUM(S.TotalAmount) as TotalAmountFROM[wwi_perf].[Sale_Partition02] Sjoin [wwi].[Date] D onS.TransactionDateId = D.DateIdGROUP BYS.CustomerId,D.Year,D.Quarter ) T</sql>\n",
+					"<dsql_operations total_cost=\"0\" total_number_operations=\"1\">\n",
+					"    <dsql_operation operation_type=\"RETURN\">\n",
+					"    <location distribution=\"AllDistributions\" />\n",
+					"    <select>SELECT [T1_1].[CustomerId] AS [CustomerId], [T1_1].[Year] AS [Year], [T1_1].[Quarter] AS [Quarter], [T1_1].[col] AS [col] FROM (SELECT TOP (CAST ((1000) AS BIGINT)) [T2_1].[CustomerId] AS [CustomerId], [T2_1].[Year] AS [Year], [T2_1].[Quarter] AS [Quarter], [T2_1].[col1] AS [col] FROM (SELECT ISNULL([T3_1].[col], CONVERT (BIGINT, 0, 0)) AS [col], [T3_1].[CustomerId] AS [CustomerId], [T3_1].[Year] AS [Year], [T3_1].[Quarter] AS [Quarter], [T3_1].[col1] AS [col1] FROM (SELECT SUM([T4_1].[cb]) AS [col], SUM([T4_1].[TotalAmount]) AS [col1], [T4_1].[CustomerId] AS [CustomerId], [T4_1].[Year] AS [Year], [T4_1].[Quarter] AS [Quarter] FROM (SELECT [T5_1].[CustomerId] AS [CustomerId], [T5_1].[TotalAmount] AS [TotalAmount], [T5_1].[cb] AS [cb], [T5_1].[Quarter] AS [Quarter], [T5_1].[Year] AS [Year] FROM [SQLPool01].[wwi_perf].[mvCustomerSales] AS T5_1) AS T4_1 GROUP BY [T4_1].[CustomerId], [T4_1].[Year], [T4_1].[Quarter]) AS T3_1) AS T2_1 WHERE ([T2_1].[col] != CAST ((0) AS BIGINT))) AS T1_1 OPTION (MAXDOP 4)</select>\n",
+					"    </dsql_operation>\n",
+					"</dsql_operations>\n",
+					"</dsql_query>\n",
+					"```"
+				]
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "d8cda296-9475-4dbd-9462-525f276e3952"
+				},
+				"source": [
+					"<span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">The same materialized view is also used to optimize the second query. Get its execution plan:</span>"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "76b01629-0201-4026-8e1e-b1583b4b4ec7"
+				},
+				"source": [
+					"EXPLAIN\r\n",
+					"SELECT TOP 1000 * FROM\r\n",
+					"(\r\n",
+					"    SELECT\r\n",
+					"        S.CustomerId\r\n",
+					"        ,D.Year\r\n",
+					"        ,D.Month\r\n",
+					"        ,SUM(S.ProfitAmount) as TotalProfit\r\n",
+					"    FROM\r\n",
+					"        [wwi_perf].[Sale_Partition02] S\r\n",
+					"        join [wwi].[Date] D on\r\n",
+					"            S.TransactionDateId = D.DateId\r\n",
+					"    GROUP BY\r\n",
+					"        S.CustomerId\r\n",
+					"        ,D.Year\r\n",
+					"        ,D.Month\r\n",
+					") T"
+				],
+				"execution_count": 9
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "e36e1005-fae0-4ba3-8e4c-d627a590acf9"
+				},
+				"source": [
+					"The resulting execution plan shows the use of the same materialized view to optimize execution:\n",
+					"\n",
+					"```xml\n",
+					"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n",
+					"<dsql_query number_nodes=\"1\" number_distributions=\"60\" number_distributions_per_node=\"60\">\n",
+					"<sql>SELECT TOP 1000 * FROM (SELECTS.CustomerId,D.Year,D.Month,SUM(S.ProfitAmount) as TotalProfitFROM[wwi_perf].[Sale_Partition02] Sjoin [wwi].[Date] D onS.TransactionDateId = D.DateIdGROUP BYS.CustomerId,D.Year,D.Month ) T</sql>\n",
+					"<dsql_operations total_cost=\"0\" total_number_operations=\"1\">\n",
+					"    <dsql_operation operation_type=\"RETURN\">\n",
+					"    <location distribution=\"AllDistributions\" />\n",
+					"    <select>SELECT [T1_1].[CustomerId] AS [CustomerId], [T1_1].[Year] AS [Year], [T1_1].[Month] AS [Month], [T1_1].[col] AS [col] FROM (SELECT TOP (CAST ((1000) AS BIGINT)) [T2_1].[CustomerId] AS [CustomerId], [T2_1].[Year] AS [Year], [T2_1].[Month] AS [Month], [T2_1].[col1] AS [col] FROM (SELECT ISNULL([T3_1].[col], CONVERT (BIGINT, 0, 0)) AS [col], [T3_1].[CustomerId] AS [CustomerId], [T3_1].[Year] AS [Year], [T3_1].[Month] AS [Month], [T3_1].[col1] AS [col1] FROM (SELECT SUM([T4_1].[cb]) AS [col], SUM([T4_1].[TotalProfit]) AS [col1], [T4_1].[CustomerId] AS [CustomerId], [T4_1].[Year] AS [Year], [T4_1].[Month] AS [Month] FROM (SELECT [T5_1].[CustomerId] AS [CustomerId], [T5_1].[TotalProfit] AS [TotalProfit], [T5_1].[cb] AS [cb], [T5_1].[Month] AS [Month], [T5_1].[Year] AS [Year] FROM [SQLPool01].[wwi_perf].[mvCustomerSales] AS T5_1) AS T4_1 GROUP BY [T4_1].[CustomerId], [T4_1].[Year], [T4_1].[Month]) AS T3_1) AS T2_1 WHERE ([T2_1].[col] != CAST ((0) AS BIGINT))) AS T1_1 OPTION (MAXDOP 4)</select>\n",
+					"    </dsql_operation>\n",
+					"</dsql_operations>\n",
+					"</dsql_query>\n",
+					"```\n",
+					"\n",
+					"> Note\n",
+					"> \n",
+					"> Even if the two queries have different aggregation levels, the query optimizer is able to infer the use of the materialized view. This happens because the materialized view covers both aggregation levels (`Quarter` and `Month`) as well as both aggregation measures (`TotalAmount` and `ProfitAmount`)."
+				]
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "f492e41f-6c69-41f3-a20b-6edd87e9aff2"
+				},
+				"source": [
+					"<span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">Check the materialized view overhead:</span>"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "37340146-4722-43ce-be69-297ceefabb8a"
+				},
+				"source": [
+					"DBCC PDW_SHOWMATERIALIZEDVIEWOVERHEAD ( 'wwi_perf.mvCustomerSales' )"
+				],
+				"execution_count": 10
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "652d8ac0-b3a2-4865-a39f-845c3f3c28ff"
+				},
+				"source": [
+					"1. The results show that `BASE_VIEW_ROWS` are equal to `TOTAL_ROWS` (and hence `OVERHEAD_RATIO` is 1). The materialized view is perfectly aligned with the base view. This situation is expected to change once the underlying data starts to change.\n",
+					"    \n",
+					"2. Update the original data the materialized view was built on:"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "fd8ac068-36f9-4e59-ae0d-47908d6ac795"
+				},
+				"source": [
+					"UPDATE\r\n",
+					"    [wwi_perf].[Sale_Partition02]\r\n",
+					"SET\r\n",
+					"    TotalAmount = TotalAmount * 1.01\r\n",
+					"    ,ProfitAmount = ProfitAmount * 1.01\r\n",
+					"WHERE\r\n",
+					"    CustomerId BETWEEN 100 and 200"
+				]
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "f415bb6a-4c11-4281-8bd1-0d7f46a594d3"
+				},
+				"source": [
+					"<span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">Check the materialized view overhead again:</span>"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "046e3a94-6dba-48e6-ac2a-65578fd40792"
+				},
+				"source": [
+					"DBCC PDW_SHOWMATERIALIZEDVIEWOVERHEAD ( 'wwi_perf.mvCustomerSales' )"
+				]
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "a8487d68-9657-4f95-82c6-d10f22154ba5"
+				},
+				"source": [
+					"1. There is now a delta stored by the materialized view which results in `TOTAL_ROWS` being greater than `BASE_VIEW_ROWS` and `OVERHEAD_RATIO` being greater than 1.\n",
+					"    \n",
+					"2. Rebuild the materialized view and check that the overhead ration went back to 1:"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"azdata_cell_guid": "cb3a2437-786f-47b7-b956-8d2789433df7",
+					"language": "sql"
+				},
+				"source": [
+					"ALTER MATERIALIZED VIEW [wwi_perf].[mvCustomerSales] REBUILD\r\n",
+					"\r\n",
+					"DBCC PDW_SHOWMATERIALIZEDVIEWOVERHEAD ( 'wwi_perf.mvCustomerSales' )"
+				]
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "7eea2b83-7584-439b-b3b9-083fb2fed928"
+				},
+				"source": [
+					"Analyze another example"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"azdata_cell_guid": "47a2dbc3-87aa-4fa0-b403-32b8d3ce7712",
+					"language": "sql"
+				},
+				"source": [
+					"SELECT\r\n",
+					"    T.TransactionItemsCountBucket\r\n",
+					"    ,count(*) as CustomersCount\r\n",
+					"FROM\r\n",
+					"    (\r\n",
+					"        SELECT\r\n",
+					"            CustomerId,\r\n",
+					"            (count(*) - 184) / 100 as TransactionItemsCountBucket\r\n",
+					"        FROM\r\n",
+					"            [wwi_perf].[Sale_Hash]\r\n",
+					"        GROUP BY\r\n",
+					"            CustomerId\r\n",
+					"    ) T\r\n",
+					"GROUP BY\r\n",
+					"    T.TransactionItemsCountBucket\r\n",
+					"ORDER BY\r\n",
+					"    T.TransactionItemsCountBucket"
+				],
+				"execution_count": 11
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "348772a7-b3ab-4a72-b947-cdbd5a46d1db"
+				},
+				"source": [
+					"<span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">Improve the query by adding support to calculate the lower margin of the first per-customer transactions items count bucket:</span>"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"azdata_cell_guid": "45fd46dd-94e2-4f59-ad63-1c069ac692ac",
+					"language": "sql"
+				},
+				"source": [
+					"SELECT\r\n",
+					"    T.TransactionItemsCountBucket\r\n",
+					"    ,count(*) as CustomersCount\r\n",
+					"FROM\r\n",
+					"    (\r\n",
+					"        SELECT\r\n",
+					"            CustomerId,\r\n",
+					"            (\r\n",
+					"                COUNT(*) -\r\n",
+					"                (\r\n",
+					"                    SELECT\r\n",
+					"                        MIN(TransactionItemsCount)\r\n",
+					"                    FROM\r\n",
+					"                    (\r\n",
+					"                        SELECT\r\n",
+					"                            COUNT(*) as TransactionItemsCount\r\n",
+					"                        FROM\r\n",
+					"                            [wwi_perf].[Sale_Hash]\r\n",
+					"                        GROUP BY\r\n",
+					"                            CustomerId\r\n",
+					"                    ) X\r\n",
+					"                )\r\n",
+					"            ) / 100 as TransactionItemsCountBucket\r\n",
+					"        FROM\r\n",
+					"            [wwi_perf].[Sale_Hash]\r\n",
+					"        GROUP BY\r\n",
+					"            CustomerId\r\n",
+					"    ) T\r\n",
+					"GROUP BY\r\n",
+					"    T.TransactionItemsCountBucket\r\n",
+					"ORDER BY\r\n",
+					"    T.TransactionItemsCountBucket"
+				],
+				"execution_count": 12
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "b7db96a1-1597-40c1-aee2-70a72aad8bf4"
+				},
+				"source": [
+					"### Improve the execution plan of the query with a materialized view\n",
+					"\n",
+					"1. Run the query with the `EXPLAIN` directive (note the `WITH_RECOMMENDATIONS` option as well):"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"azdata_cell_guid": "dae771c5-4326-48e4-b974-ad7ff7e59a7a",
+					"language": "sql"
+				},
+				"source": [
+					"EXPLAIN WITH_RECOMMENDATIONS\r\n",
+					"SELECT\r\n",
+					"    T.TransactionItemsCountBucket\r\n",
+					"    ,count(*) as CustomersCount\r\n",
+					"FROM\r\n",
+					"    (\r\n",
+					"        SELECT\r\n",
+					"            CustomerId,\r\n",
+					"            (\r\n",
+					"                COUNT(*) - \r\n",
+					"                (\r\n",
+					"                    SELECT \r\n",
+					"                        MIN(TransactionItemsCount)\r\n",
+					"                    FROM \r\n",
+					"                    (\r\n",
+					"                        SELECT \r\n",
+					"                            COUNT(*) as TransactionItemsCount\r\n",
+					"                        FROM \r\n",
+					"                            [wwi_perf].[Sale_Hash] \r\n",
+					"                        GROUP BY \r\n",
+					"                            CustomerId \r\n",
+					"                    ) X \r\n",
+					"                )\r\n",
+					"            ) / 100 as TransactionItemsCountBucket\r\n",
+					"        FROM\r\n",
+					"            [wwi_perf].[Sale_Hash]\r\n",
+					"        GROUP BY\r\n",
+					"            CustomerId\r\n",
+					"    ) T\r\n",
+					"GROUP BY\r\n",
+					"    T.TransactionItemsCountBucket\r\n",
+					"ORDER BY\r\n",
+					"    T.TransactionItemsCountBucket"
+				],
+				"execution_count": 13
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "5267a811-a83c-45ec-9e96-fa1a28596a0e"
+				},
+				"source": [
+					"1. Analyze the resulting execution plan. Take a close look to the `<materialized_view_candidates>` section which suggests possible materialized views you can create to improve the performance of the query.\n",
+					"    \n",
+					"    ```xml\n",
+					"    <?xml version=\"1.0\" encoding=\"utf-8\"?>\n",
+					"    <dsql_query number_nodes=\"5\" number_distributions=\"60\" number_distributions_per_node=\"12\">\n",
+					"    <sql>SELECT\n",
+					"        T.TransactionItemsCountBucket\n",
+					"        ,count(*) as CustomersCount\n",
+					"    FROM\n",
+					"        (\n",
+					"            SELECT\n",
+					"                CustomerId,\n",
+					"                (\n",
+					"                    COUNT(*) -\n",
+					"                    (\n",
+					"                        SELECT\n",
+					"                            MIN(TransactionItemsCount)\n",
+					"                        FROM\n",
+					"                        (\n",
+					"                            SELECT\n",
+					"                                COUNT(*) as TransactionItemsCount\n",
+					"                            FROM\n",
+					"                                [wwi_perf].[Sale_Hash]\n",
+					"                            GROUP BY\n",
+					"                                CustomerId\n",
+					"                        ) X\n",
+					"                    )\n",
+					"                ) / 100 as TransactionItemsCountBucket\n",
+					"            FROM\n",
+					"                [wwi_perf].[Sale_Hash]\n",
+					"            GROUP BY\n",
+					"                CustomerId\n",
+					"        ) T\n",
+					"    GROUP BY\n",
+					"        T.TransactionItemsCountBucket\n",
+					"    ORDER BY\n",
+					"        T.TransactionItemsCountBucket</sql>\n",
+					"    <materialized_view_candidates>\n",
+					"        <materialized_view_candidates with_constants=\"False\">CREATE MATERIALIZED VIEW View1 WITH (DISTRIBUTION = HASH([Expr0])) AS\n",
+					"    SELECT [SQLPool01].[wwi_perf].[Sale_Hash].[CustomerId] AS [Expr0],\n",
+					"        COUNT(*) AS [Expr1]\n",
+					"    FROM [wwi_perf].[Sale_Hash]\n",
+					"    GROUP BY [SQLPool01].[wwi_perf].[Sale_Hash].[CustomerId]</materialized_view_candidates>\n",
+					"    </materialized_view_candidates>\n",
+					"    <dsql_operations total_cost=\"0.0242811172881356\" total_number_operations=\"9\">\n",
+					"        <dsql_operation operation_type=\"RND_ID\">\n",
+					"        <identifier>TEMP_ID_99</identifier>\n",
+					"        </dsql_operation>\n",
+					"        <dsql_operation operation_type=\"ON\">\n",
+					"        <location permanent=\"false\" distribution=\"AllComputeNodes\" />\n",
+					"        <sql_operations>\n",
+					"            <sql_operation type=\"statement\">CREATE TABLE [qtabledb].[dbo].[TEMP_ID_99] ([col] INT ) WITH(DISTRIBUTED_MOVE_FILE='');</sql_operation>\n",
+					"        </sql_operations>\n",
+					"        </dsql_operation>\n",
+					"        <dsql_operation operation_type=\"BROADCAST_MOVE\">\n",
+					"        <operation_cost cost=\"0.00096\" accumulative_cost=\"0.00096\" average_rowsize=\"4\" output_rows=\"1\" GroupNumber=\"69\" />\n",
+					"        <source_statement>SELECT [T1_1].[col] AS [col] FROM (SELECT MIN([T2_1].[col]) AS [col] FROM (SELECT COUNT(CAST ((0) AS INT)) AS [col], 0 AS [col1] FROM [SQLPool01].[wwi_perf].[Sale_Hash] AS T3_1 GROUP BY [T3_1].[CustomerId]) AS T2_1 GROUP BY [T2_1].[col1]) AS T1_1\n",
+					"    OPTION (MAXDOP 6, MIN_GRANT_PERCENT = [MIN_GRANT], DISTRIBUTED_MOVE(N''))</source_statement>\n",
+					"        <destination_table>[TEMP_ID_99]</destination_table>\n",
+					"        </dsql_operation>\n",
+					"        <dsql_operation operation_type=\"RND_ID\">\n",
+					"        <identifier>TEMP_ID_100</identifier>\n",
+					"        </dsql_operation>\n",
+					"        <dsql_operation operation_type=\"ON\">\n",
+					"        <location permanent=\"false\" distribution=\"AllDistributions\" />\n",
+					"        <sql_operations>\n",
+					"            <sql_operation type=\"statement\">CREATE TABLE [qtabledb].[dbo].[TEMP_ID_100] ([col] INT, [col1] BIGINT ) WITH(DISTRIBUTED_MOVE_FILE='');</sql_operation>\n",
+					"        </sql_operations>\n",
+					"        </dsql_operation>\n",
+					"        <dsql_operation operation_type=\"SHUFFLE_MOVE\">\n",
+					"        <operation_cost cost=\"0.0233211172881356\" accumulative_cost=\"0.0242811172881356\" average_rowsize=\"12\" output_rows=\"95.5518\" GroupNumber=\"75\" />\n",
+					"        <source_statement>SELECT [T1_1].[col1] AS [col], [T1_1].[col] AS [col1] FROM (SELECT COUNT_BIG(CAST ((0) AS INT)) AS [col], [T2_1].[col] AS [col1] FROM (SELECT (([T3_2].[col] - [T3_1].[col]) / CAST ((100) AS INT)) AS [col] FROM (SELECT MIN([T4_1].[col]) AS [col] FROM [qtabledb].[dbo].[TEMP_ID_99] AS T4_1) AS T3_1 INNER JOIN\n",
+					"    (SELECT COUNT(CAST ((0) AS INT)) AS [col] FROM [SQLPool01].[wwi_perf].[Sale_Hash] AS T4_1 GROUP BY [T4_1].[CustomerId]) AS T3_2\n",
+					"    ON (0 = 0)) AS T2_1 GROUP BY [T2_1].[col]) AS T1_1\n",
+					"    OPTION (MAXDOP 6, MIN_GRANT_PERCENT = [MIN_GRANT], DISTRIBUTED_MOVE(N''))</source_statement>\n",
+					"        <destination_table>[TEMP_ID_100]</destination_table>\n",
+					"        <shuffle_columns>col;</shuffle_columns>\n",
+					"        </dsql_operation>\n",
+					"        <dsql_operation operation_type=\"RETURN\">\n",
+					"        <location distribution=\"AllDistributions\" />\n",
+					"        <select>SELECT [T1_1].[col1] AS [col], [T1_1].[col] AS [col1] FROM (SELECT CONVERT (INT, [T2_1].[col], 0) AS [col], [T2_1].[col1] AS [col1] FROM (SELECT ISNULL([T3_1].[col], CONVERT (BIGINT, 0, 0)) AS [col], [T3_1].[col1] AS [col1] FROM (SELECT SUM([T4_1].[col1]) AS [col], [T4_1].[col] AS [col1] FROM [qtabledb].[dbo].[TEMP_ID_100] AS T4_1 GROUP BY [T4_1].[col]) AS T3_1) AS T2_1) AS T1_1 ORDER BY [T1_1].[col1] ASC\n",
+					"    OPTION (MAXDOP 6, MIN_GRANT_PERCENT = [MIN_GRANT])</select>\n",
+					"        </dsql_operation>\n",
+					"        <dsql_operation operation_type=\"ON\">\n",
+					"        <location permanent=\"false\" distribution=\"AllDistributions\" />\n",
+					"        <sql_operations>\n",
+					"            <sql_operation type=\"statement\">DROP TABLE [qtabledb].[dbo].[TEMP_ID_100]</sql_operation>\n",
+					"        </sql_operations>\n",
+					"        </dsql_operation>\n",
+					"        <dsql_operation operation_type=\"ON\">\n",
+					"        <location permanent=\"false\" distribution=\"AllComputeNodes\" />\n",
+					"        <sql_operations>\n",
+					"            <sql_operation type=\"statement\">DROP TABLE [qtabledb].[dbo].[TEMP_ID_99]</sql_operation>\n",
+					"        </sql_operations>\n",
+					"        </dsql_operation>\n",
+					"    </dsql_operations>\n",
+					"    </dsql_query>\n",
+					"    ```"
+				]
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "067f2f56-d358-4e92-bc61-cf0a0e5fea75"
+				},
+				"source": [
+					"<span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">Create the suggested materialized view:</span>"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"azdata_cell_guid": "b2769e04-3f2d-4369-ba53-f02923156a1a",
+					"language": "sql"
+				},
+				"source": [
+					"CREATE MATERIALIZED VIEW\r\n",
+					"    mvTransactionItemsCounts\r\n",
+					"WITH\r\n",
+					"(\r\n",
+					"    DISTRIBUTION = HASH([CustomerId])\r\n",
+					")\r\n",
+					"AS\r\n",
+					"SELECT\r\n",
+					"    CustomerId\r\n",
+					"    ,COUNT(*) AS ItemsCount\r\n",
+					"FROM\r\n",
+					"    [wwi_perf].[Sale_Hash]\r\n",
+					"GROUP BY\r\n",
+					"    CustomerId"
+				],
+				"execution_count": 14
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "c176fcd4-1094-411a-b4fd-971233dfc3f7"
+				},
+				"source": [
+					"<span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">Check the execution plan again:</span>"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "25ed8bcc-7380-4025-80e1-7bd5b99a3508"
+				},
+				"source": [
+					"EXPLAIN WITH_RECOMMENDATIONS\r\n",
+					"SELECT\r\n",
+					"    T.TransactionItemsCountBucket\r\n",
+					"    ,count(*) as CustomersCount\r\n",
+					"FROM\r\n",
+					"    (\r\n",
+					"        SELECT\r\n",
+					"            CustomerId,\r\n",
+					"            (\r\n",
+					"                COUNT(*) - \r\n",
+					"                (\r\n",
+					"                    SELECT \r\n",
+					"                        MIN(TransactionItemsCount)\r\n",
+					"                    FROM \r\n",
+					"                    (\r\n",
+					"                        SELECT \r\n",
+					"                            COUNT(*) as TransactionItemsCount\r\n",
+					"                        FROM \r\n",
+					"                            [wwi_perf].[Sale_Hash] \r\n",
+					"                        GROUP BY \r\n",
+					"                            CustomerId \r\n",
+					"                    ) X \r\n",
+					"                )\r\n",
+					"            ) / 100 as TransactionItemsCountBucket\r\n",
+					"        FROM\r\n",
+					"            [wwi_perf].[Sale_Hash]\r\n",
+					"        GROUP BY\r\n",
+					"            CustomerId\r\n",
+					"    ) T\r\n",
+					"GROUP BY\r\n",
+					"    T.TransactionItemsCountBucket\r\n",
+					"ORDER BY\r\n",
+					"    T.TransactionItemsCountBucket"
+				],
+				"execution_count": 15
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "afe754f5-4ba1-4157-968c-1924d6a4318a"
+				},
+				"source": [
+					"The resulting execution plan indicates now the use of the `mvTransactionItemsCounts` (the `BROADCAST_MOVE` distributed SQL operation) materialized view which provides improvements to the query execution time:\n",
+					"\n",
+					"```xml\n",
+					"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n",
+					"<dsql_query number_nodes=\"5\" number_distributions=\"60\" number_distributions_per_node=\"12\">\n",
+					"<sql>SELECT\n",
+					"    T.TransactionItemsCountBucket\n",
+					"    ,count(*) as CustomersCount\n",
+					"FROM\n",
+					"    (\n",
+					"        SELECT\n",
+					"            CustomerId,\n",
+					"            (\n",
+					"                COUNT(*) -\n",
+					"                (\n",
+					"                    SELECT\n",
+					"                        MIN(TransactionItemsCount)\n",
+					"                    FROM\n",
+					"                    (\n",
+					"                        SELECT\n",
+					"                            COUNT(*) as TransactionItemsCount\n",
+					"                        FROM\n",
+					"                            [wwi_perf].[Sale_Hash]\n",
+					"                        GROUP BY\n",
+					"                            CustomerId\n",
+					"                    ) X\n",
+					"                )\n",
+					"            ) / 100 as TransactionItemsCountBucket\n",
+					"        FROM\n",
+					"            [wwi_perf].[Sale_Hash]\n",
+					"        GROUP BY\n",
+					"            CustomerId\n",
+					"    ) T\n",
+					"GROUP BY\n",
+					"    T.TransactionItemsCountBucket\n",
+					"ORDER BY\n",
+					"    T.TransactionItemsCountBucket</sql>\n",
+					"<materialized_view_candidates>\n",
+					"    <materialized_view_candidates with_constants=\"False\">CREATE MATERIALIZED VIEW View1 WITH (DISTRIBUTION = HASH([Expr0])) AS\n",
+					"SELECT [SQLPool01].[wwi_perf].[Sale_Hash].[CustomerId] AS [Expr0],\n",
+					"    COUNT(*) AS [Expr1]\n",
+					"FROM [wwi_perf].[Sale_Hash]\n",
+					"GROUP BY [SQLPool01].[wwi_perf].[Sale_Hash].[CustomerId]</materialized_view_candidates>\n",
+					"</materialized_view_candidates>\n",
+					"<dsql_operations total_cost=\"0.0242811172881356\" total_number_operations=\"9\">\n",
+					"    <dsql_operation operation_type=\"RND_ID\">\n",
+					"    <identifier>TEMP_ID_111</identifier>\n",
+					"    </dsql_operation>\n",
+					"    <dsql_operation operation_type=\"ON\">\n",
+					"    <location permanent=\"false\" distribution=\"AllComputeNodes\" />\n",
+					"    <sql_operations>\n",
+					"        <sql_operation type=\"statement\">CREATE TABLE [qtabledb].[dbo].[TEMP_ID_111] ([col] INT ) WITH(DISTRIBUTED_MOVE_FILE='');</sql_operation>\n",
+					"    </sql_operations>\n",
+					"    </dsql_operation>\n",
+					"    <dsql_operation operation_type=\"BROADCAST_MOVE\">\n",
+					"    <operation_cost cost=\"0.00096\" accumulative_cost=\"0.00096\" average_rowsize=\"4\" output_rows=\"1\" GroupNumber=\"134\" />\n",
+					"    <source_statement>SELECT [T1_1].[col] AS [col] FROM (SELECT MIN([T2_1].[col]) AS [col] FROM (SELECT CONVERT (INT, [T3_1].[col], 0) AS [col], 0 AS [col1] FROM (SELECT ISNULL([T4_1].[col], CONVERT (BIGINT, 0, 0)) AS [col] FROM (SELECT SUM([T5_1].[ItemsCount]) AS [col] FROM (SELECT [T6_1].[CustomerId] AS [CustomerId], [T6_1].[ItemsCount] AS [ItemsCount] FROM [SQLPool01].[dbo].[mvTransactionItemsCounts] AS T6_1) AS T5_1 GROUP BY [T5_1].[CustomerId]) AS T4_1) AS T3_1 WHERE ([T3_1].[col] != CAST ((0) AS BIGINT))) AS T2_1 GROUP BY [T2_1].[col1]) AS T1_1\n",
+					"OPTION (MAXDOP 6, MIN_GRANT_PERCENT = [MIN_GRANT], DISTRIBUTED_MOVE(N''))</source_statement>\n",
+					"    <destination_table>[TEMP_ID_111]</destination_table>\n",
+					"    </dsql_operation>\n",
+					"    <dsql_operation operation_type=\"RND_ID\">\n",
+					"    <identifier>TEMP_ID_112</identifier>\n",
+					"    </dsql_operation>\n",
+					"    <dsql_operation operation_type=\"ON\">\n",
+					"    <location permanent=\"false\" distribution=\"AllDistributions\" />\n",
+					"    <sql_operations>\n",
+					"        <sql_operation type=\"statement\">CREATE TABLE [qtabledb].[dbo].[TEMP_ID_112] ([col] INT, [col1] BIGINT ) WITH(DISTRIBUTED_MOVE_FILE='');</sql_operation>\n",
+					"    </sql_operations>\n",
+					"    </dsql_operation>\n",
+					"    <dsql_operation operation_type=\"SHUFFLE_MOVE\">\n",
+					"    <operation_cost cost=\"0.0233211172881356\" accumulative_cost=\"0.0242811172881356\" average_rowsize=\"12\" output_rows=\"95.5518\" GroupNumber=\"140\" />\n",
+					"    <source_statement>SELECT [T1_1].[col1] AS [col], [T1_1].[col] AS [col1] FROM (SELECT COUNT_BIG(CAST ((0) AS INT)) AS [col], [T2_1].[col] AS [col1] FROM (SELECT (([T3_2].[col] - [T3_1].[col]) / CAST ((100) AS INT)) AS [col] FROM (SELECT MIN([T4_1].[col]) AS [col] FROM [qtabledb].[dbo].[TEMP_ID_111] AS T4_1) AS T3_1 INNER JOIN\n",
+					"(SELECT CONVERT (INT, [T4_1].[col], 0) AS [col] FROM (SELECT ISNULL([T5_1].[col], CONVERT (BIGINT, 0, 0)) AS [col] FROM (SELECT SUM([T6_1].[ItemsCount]) AS [col] FROM (SELECT [T7_1].[CustomerId] AS [CustomerId], [T7_1].[ItemsCount] AS [ItemsCount] FROM [SQLPool01].[dbo].[mvTransactionItemsCounts] AS T7_1) AS T6_1 GROUP BY [T6_1].[CustomerId]) AS T5_1) AS T4_1 WHERE ([T4_1].[col] != CAST ((0) AS BIGINT))) AS T3_2\n",
+					"ON (0 = 0)) AS T2_1 GROUP BY [T2_1].[col]) AS T1_1\n",
+					"OPTION (MAXDOP 6, MIN_GRANT_PERCENT = [MIN_GRANT], DISTRIBUTED_MOVE(N''))</source_statement>\n",
+					"    <destination_table>[TEMP_ID_112]</destination_table>\n",
+					"    <shuffle_columns>col;</shuffle_columns>\n",
+					"    </dsql_operation>\n",
+					"    <dsql_operation operation_type=\"RETURN\">\n",
+					"    <location distribution=\"AllDistributions\" />\n",
+					"    <select>SELECT [T1_1].[col1] AS [col], [T1_1].[col] AS [col1] FROM (SELECT CONVERT (INT, [T2_1].[col], 0) AS [col], [T2_1].[col1] AS [col1] FROM (SELECT ISNULL([T3_1].[col], CONVERT (BIGINT, 0, 0)) AS [col], [T3_1].[col1] AS [col1] FROM (SELECT SUM([T4_1].[col1]) AS [col], [T4_1].[col] AS [col1] FROM [qtabledb].[dbo].[TEMP_ID_112] AS T4_1 GROUP BY [T4_1].[col]) AS T3_1) AS T2_1) AS T1_1 ORDER BY [T1_1].[col1] ASC\n",
+					"OPTION (MAXDOP 6, MIN_GRANT_PERCENT = [MIN_GRANT])</select>\n",
+					"    </dsql_operation>\n",
+					"    <dsql_operation operation_type=\"ON\">\n",
+					"    <location permanent=\"false\" distribution=\"AllDistributions\" />\n",
+					"    <sql_operations>\n",
+					"        <sql_operation type=\"statement\">DROP TABLE [qtabledb].[dbo].[TEMP_ID_112]</sql_operation>\n",
+					"    </sql_operations>\n",
+					"    </dsql_operation>\n",
+					"    <dsql_operation operation_type=\"ON\">\n",
+					"    <location permanent=\"false\" distribution=\"AllComputeNodes\" />\n",
+					"    <sql_operations>\n",
+					"        <sql_operation type=\"statement\">DROP TABLE [qtabledb].[dbo].[TEMP_ID_111]</sql_operation>\n",
+					"    </sql_operations>\n",
+					"    </dsql_operation>\n",
+					"</dsql_operations>\n",
+					"</dsql_query>\n",
+					"```"
+				]
+			}
+		]
+	}
+}

@@ -1,0 +1,87 @@
+{
+	"name": "03-MonitoringSparkPool",
+	"properties": {
+		"nbformat": 4,
+		"nbformat_minor": 2,
+		"bigDataPool": {
+			"referenceName": "synspark",
+			"type": "BigDataPoolReference"
+		},
+		"targetSparkConfiguration": {
+			"referenceName": "spark_loganalytics_conf",
+			"type": "SparkConfigurationReference"
+		},
+		"sessionProperties": {
+			"driverMemory": "56g",
+			"driverCores": 8,
+			"executorMemory": "56g",
+			"executorCores": 8,
+			"numExecutors": 2,
+			"runAsWorkspaceSystemIdentity": false,
+			"conf": {
+				"spark.dynamicAllocation.enabled": "false",
+				"spark.dynamicAllocation.minExecutors": "2",
+				"spark.dynamicAllocation.maxExecutors": "2",
+				"spark.autotune.trackingId": "3a41399a-6473-4c4a-8b49-024adcd4eeca"
+			}
+		},
+		"metadata": {
+			"saveOutput": true,
+			"synapse_widget": {
+				"version": "0.1"
+			},
+			"enableDebugMode": false,
+			"kernelspec": {
+				"name": "synapse_spark",
+				"display_name": "scala"
+			},
+			"language_info": {
+				"name": "scala"
+			},
+			"a365ComputeOptions": {
+				"id": "/subscriptions/f4b71bff-7f98-47a7-ba03-f48b5c093a7f/resourceGroups/dp500-u3qtrzl/providers/Microsoft.Synapse/workspaces/synapseu3qtrzl/bigDataPools/synspark",
+				"name": "synspark",
+				"type": "Spark",
+				"endpoint": "https://synapseu3qtrzl.dev.azuresynapse.net/livyApi/versions/2019-11-01-preview/sparkPools/synspark",
+				"auth": {
+					"type": "AAD",
+					"authResource": "https://dev.azuresynapse.net",
+					"authHeader": null
+				},
+				"sparkVersion": "3.3",
+				"nodeCount": 3,
+				"cores": 8,
+				"memory": 56,
+				"extraHeader": null
+			},
+			"sessionKeepAliveTimeout": 30,
+			"targetSparkConfiguration": "spark_loganalytics_conf"
+		},
+		"cells": [
+			{
+				"cell_type": "code",
+				"metadata": {
+					"microsoft": {
+						"language": "scala"
+					}
+				},
+				"source": [
+					"%%spark\r\n",
+					"val logger = org.apache.log4j.LogManager.getLogger(\"com.contoso.LoggerExample\")\r\n",
+					"logger.info(\"info message\")\r\n",
+					"logger.warn(\"warn message\")\r\n",
+					"logger.error(\"error message\")\r\n",
+					"//log exception\r\n",
+					"try {\r\n",
+					"      1/0\r\n",
+					" } catch {\r\n",
+					"      case e:Exception =>logger.warn(\"Exception\", e)\r\n",
+					"}\r\n",
+					"// run job for task level metrics\r\n",
+					"val data = sc.parallelize(Seq(1,2,3,4)).toDF().count()"
+				],
+				"execution_count": 3
+			}
+		]
+	}
+}

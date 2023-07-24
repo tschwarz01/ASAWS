@@ -1,0 +1,299 @@
+{
+	"name": "21_optimizeandmonitor",
+	"properties": {
+		"nbformat": 4,
+		"nbformat_minor": 2,
+		"bigDataPool": {
+			"referenceName": "synspark",
+			"type": "BigDataPoolReference"
+		},
+		"targetSparkConfiguration": {
+			"referenceName": "spark_loganalytics_conf",
+			"type": "SparkConfigurationReference"
+		},
+		"sessionProperties": {
+			"driverMemory": "28g",
+			"driverCores": 4,
+			"executorMemory": "28g",
+			"executorCores": 4,
+			"numExecutors": 1,
+			"runAsWorkspaceSystemIdentity": false,
+			"conf": {
+				"spark.dynamicAllocation.enabled": "true",
+				"spark.dynamicAllocation.minExecutors": "1",
+				"spark.dynamicAllocation.maxExecutors": "15",
+				"spark.autotune.trackingId": "4ef6b503-4569-41be-a6a9-6b1298ac23fd"
+			}
+		},
+		"metadata": {
+			"saveOutput": true,
+			"synapse_widget": {
+				"version": "0.1"
+			},
+			"enableDebugMode": false,
+			"kernelspec": {
+				"name": "synapse_pyspark",
+				"display_name": "Synapse PySpark"
+			},
+			"language_info": {
+				"name": "python"
+			},
+			"a365ComputeOptions": {
+				"id": "/subscriptions/f4b71bff-7f98-47a7-ba03-f48b5c093a7f/resourceGroups/dp500-u3qtrzl/providers/Microsoft.Synapse/workspaces/synapseu3qtrzl/bigDataPools/synspark",
+				"name": "synspark",
+				"type": "Spark",
+				"endpoint": "https://synapseu3qtrzl.dev.azuresynapse.net/livyApi/versions/2019-11-01-preview/sparkPools/synspark",
+				"auth": {
+					"type": "AAD",
+					"authResource": "https://dev.azuresynapse.net",
+					"authHeader": null
+				},
+				"sparkVersion": "3.3",
+				"nodeCount": 3,
+				"cores": 8,
+				"memory": 56,
+				"extraHeader": null
+			},
+			"sessionKeepAliveTimeout": 30,
+			"targetSparkConfiguration": "spark_loganalytics_conf"
+		},
+		"cells": [
+			{
+				"cell_type": "code",
+				"source": [
+					"from pyspark.sql import SparkSession\n",
+					"from pyspark.sql.types import *\n",
+					"# Primary storage info\n",
+					"account_name = 'datalakeu3qtrzl' # fill in your primary account name\n",
+					"container_name = 'data' # fill in your container name\n",
+					"relative_path = 'nytaxi' # fill in your relative folder path\n",
+					"relative_path = 'nytaxidelta'\n",
+					"adls_path = 'abfss://%s@%s.dfs.core.windows.net/%s' % (container_name, account_name, relative_path)\n",
+					"print('Primary storage account path: ' + adls_path)\n",
+					"\n",
+					"adls_delta_path = 'abfss://%s@%s.dfs.core.windows.net/%s' % (container_name, account_name, relative_path)\n",
+					"print('Primary storage account path: ' + adls_path)"
+				],
+				"execution_count": 1
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"from azureml.opendatasets import NycTlcGreen\n",
+					"\n",
+					"from datetime import datetime\n",
+					"from dateutil import parser\n",
+					"end_date = parser.parse('2018-05-31')\n",
+					"start_date = parser.parse('2018-05-01')\n",
+					"\n",
+					"nyc_tlc = NycTlcGreen(start_date=start_date, end_date=end_date)\n",
+					"nyc_tlc_df = nyc_tlc.to_spark_dataframe()"
+				],
+				"execution_count": 2
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"import pyspark.sql.functions as f\n",
+					"\n",
+					"nyc_tlc_df_expand = nyc_tlc_df.withColumn('datetime',f.to_date('lpepPickupDatetime'))\\\n",
+					"                .withColumn('month_num',f.month(nyc_tlc_df.lpepPickupDatetime))\\\n",
+					"                .withColumn('day_of_month',f.dayofmonth(nyc_tlc_df.lpepPickupDatetime))\\\n",
+					"                .withColumn('day_of_week',f.dayofweek(nyc_tlc_df.lpepPickupDatetime))\\\n",
+					"                .withColumn('hour_of_day',f.hour(nyc_tlc_df.lpepPickupDatetime))\\\n",
+					"                .withColumn('country_code',f.lit('US'))"
+				],
+				"execution_count": 4
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"# Remove unused columns from nyc green taxi data\n",
+					"\n",
+					"columns_to_remove = [\"lpepDropoffDatetime\", \"puLocationId\", \"doLocationId\", \"pickupLongitude\", \n",
+					"                     \"pickupLatitude\", \"dropoffLongitude\",\"dropoffLatitude\" ,\"rateCodeID\", \n",
+					"                     \"storeAndFwdFlag\",\"paymentType\", \"fareAmount\", \"extra\", \"mtaTax\",\n",
+					"                     \"improvementSurcharge\", \"tollsAmount\", \"ehailFee\", \"tripType \"  \n",
+					"                    ]\n",
+					"\n",
+					"nyc_tlc_df_clean = nyc_tlc_df_expand.select([column for column in nyc_tlc_df_expand.columns if column not in columns_to_remove])"
+				],
+				"execution_count": 5
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"from azureml.opendatasets import PublicHolidays\n",
+					"\n",
+					"hol = PublicHolidays(start_date=start_date, end_date=end_date)\n",
+					"hol_df = hol.to_spark_dataframe()\n",
+					"\n",
+					"# Display data\n",
+					"hol_df.show(5, truncate = False)"
+				],
+				"execution_count": 6
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"hol_df_clean = hol_df.withColumnRenamed('countryRegionCode','country_code')\\\n",
+					"            .withColumn('datetime',f.to_date('date'))"
+				],
+				"execution_count": 7
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"# enrich taxi data with holiday data\n",
+					"nyc_taxi_holiday_df = nyc_tlc_df_clean.join(hol_df_clean, on = ['datetime', 'country_code'] , how = 'left')\n",
+					""
+				],
+				"execution_count": 8
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"nyc_taxi_holiday_df.show(2)"
+				],
+				"execution_count": 9
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					""
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"nyc_taxi_holiday_df.write \\\n",
+					"        .partitionBy(\"day_of_week\", \"datetime\") \\\n",
+					"        .mode(\"overwrite\") \\\n",
+					"        .save(adls_path)"
+				],
+				"execution_count": 10
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"nyc_taxi_holiday_df.write.format(\"delta\") \\\n",
+					"        .partitionBy(\"day_of_week\", \"datetime\") \\\n",
+					"        .mode(\"overwrite\") \\\n",
+					"        .save(adls_delta_path)\n",
+					""
+				],
+				"execution_count": 12
+			}
+		]
+	}
+}

@@ -1,0 +1,294 @@
+{
+	"name": "Dedicated Pool - Troubleshooting Query Performance",
+	"properties": {
+		"nbformat": 4,
+		"nbformat_minor": 2,
+		"sessionProperties": {
+			"driverMemory": "28g",
+			"driverCores": 4,
+			"executorMemory": "28g",
+			"executorCores": 4,
+			"numExecutors": 2,
+			"runAsWorkspaceSystemIdentity": false,
+			"conf": {
+				"spark.dynamicAllocation.enabled": "false",
+				"spark.dynamicAllocation.minExecutors": "2",
+				"spark.dynamicAllocation.maxExecutors": "2",
+				"spark.autotune.trackingId": "41a99d48-3b40-4271-90e2-300d7b80e1f6"
+			}
+		},
+		"metadata": {
+			"saveOutput": true,
+			"synapse_widget": {
+				"version": "0.1"
+			},
+			"enableDebugMode": false,
+			"kernelspec": {
+				"name": "synapse_sparksql",
+				"display_name": "sql"
+			},
+			"language_info": {
+				"name": "sql"
+			},
+			"sessionKeepAliveTimeout": 30
+		},
+		"cells": [
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "07881357-eca7-48e5-8ae2-96612d503304"
+				},
+				"source": [
+					"Investigate Query Performance"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"azdata_cell_guid": "0d38acc2-e527-49e9-bbae-a1748f197eb5",
+					"language": "sql"
+				},
+				"source": [
+					"SELECT TOP 1000 * FROM\r\n",
+					"(\r\n",
+					"    SELECT\r\n",
+					"        S.CustomerId\r\n",
+					"        ,SUM(S.TotalAmount) as TotalAmount\r\n",
+					"    FROM\r\n",
+					"        [wwi_perf].[Sale_Heap] S\r\n",
+					"    GROUP BY\r\n",
+					"        S.CustomerId\r\n",
+					") T\r\n",
+					"OPTION (LABEL = 'Lab03: Heap')"
+				],
+				"execution_count": 1
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "8130d0b1-1d4e-43a2-9c45-dd232fbc53d2"
+				},
+				"source": [
+					"Use EXPLAIN to view the query plan\n",
+					"\n",
+					"<span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">The&nbsp;</span> `EXPLAIN WITH_RECOMMENDATIONS` <span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">&nbsp;clause returns the query plan for an Azure Synapse Analytics SQL statement without running the statement. Use EXPLAIN to preview which operations will require data movement and to view the estimated costs of the query operations.</span>"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"azdata_cell_guid": "d1db167a-91a0-4249-a156-fc13aaa6b78a",
+					"language": "sql"
+				},
+				"source": [
+					"EXPLAIN WITH_RECOMMENDATIONS\r\n",
+					"SELECT TOP 1000 * FROM\r\n",
+					"(\r\n",
+					"    SELECT\r\n",
+					"        S.CustomerId\r\n",
+					"        ,SUM(S.TotalAmount) as TotalAmount\r\n",
+					"    FROM\r\n",
+					"        [wwi_perf].[Sale_Heap] S\r\n",
+					"    GROUP BY\r\n",
+					"        S.CustomerId\r\n",
+					") T"
+				],
+				"execution_count": 2
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "25127b89-9982-4c3f-943b-7fcd70e9c1c7"
+				},
+				"source": [
+					"Notice the details of the internal layout of the MPP system:\n",
+					"\n",
+					"`<dsql_query number_nodes=\"1\" number_distributions=\"60\" number_distributions_per_node=\"60\">`\n",
+					"\n",
+					"This layout is given by the current Date Warehouse Units (DWU) setting. In the setup used for the example above, we were running at `DW500c` which means that there is a single physical node to service the 60 distributions, giving a number of, again, 60 distributions per physical node. Depending on your own DWU settings, these numbers will vary.\n",
+					"\n",
+					"Here is an example layout we would get if we were running at `DW2000c`.\n",
+					"\n",
+					"`<dsql_query number_nodes=\"\"4\"\" number_distributions=\"\"60\"\" number_distributions_per_node=\"\"15\"\">`\n",
+					"\n",
+					"In this case, we have four physical nodes to service the 60 distributions, giving a number of 15 distributions per physical node.\n",
+					"\n",
+					"The query plan indicates data movement is required. This is indicated by the `SHUFFLE_MOVE` distributed SQL operation. Data movement is an operation where parts of the distributed tables are moved to different nodes during query execution. This operation is required where the data is not available on the target node, most commonly when the tables do not share the distribution key. The most common data movement operation is shuffle. During shuffle, for each input row, Synapse computes a hash value using the join columns and then sends that row to the node that owns that hash value. Either one or both sides of join can participate in the shuffle. The diagram below displays shuffle to implement join between tables T1 and T2 where neither of the tables is distributed on the join column col2.\n",
+					"\n",
+					"[![Shuffle move conceptual representation](https://github.com/solliancenet/azure-synapse-analytics-workshop-400/raw/master/day-02/media/lab3_shuffle_move.png)](https://github.com/solliancenet/azure-synapse-analytics-workshop-400/blob/master/day-02/media/lab3_shuffle_move.png)\n",
+					"\n",
+					"Let's dive now into the details provided by the query plan to understand some of the problems our current approach has. The following table contains the description of every operation mentioned in the query plan:\n",
+					"\n",
+					"| Operation | Operation Type | Description |\n",
+					"| --- | --- | --- |\n",
+					"| 1 | RND\\_ID | Identifies an object that will be created. In our case, it's the `TEMP_ID_76` internal table. |\n",
+					"| 2 | ON | Specifies the location (nodes or distributions) where the operation will occur. `AllDistributions` means here the operation will be performed on each of the 60 distributions of the SQL pool. The operation will be a SQL operation (specified via `<sql_operations>`) that will create the `TEMP_ID_76` table. |\n",
+					"| 3 | SHUFFLE\\_MOVE | The list of shuffle columns contains only one column which is `CustomerId` (specified via `<suffle_columns>`). The values will be distributed to the hash owning distributions and saved locally in the `TEMP_ID_76` tables. The operation will output an estimated number of 41265.25 rows (specified via `<operation_cost>`). According to the same section, the average resulting row size is 13 bytes. |\n",
+					"| 4 | RETURN | Data resulting from the shuffle operation will be collected from all distributions (see `<location>`) by querying the internal temporary table `TEMP_ID_76`. |\n",
+					"| 5 | ON | The `TEMP_ID_76` will be deleted from all distributions. |\n",
+					"\n",
+					"It becomes clear now what is the root cause of the performance problem: the inter-distribution data movements. This is actually one of the simplest examples given the small size of the data that needs to be shuffled. You can imagine how much worse things become when the shuffled row size becomes larger.\n",
+					"\n",
+					"You can learn more about the structure of the query plan generated by the EXPLAIN statement [here](https://docs.microsoft.com/en-us/sql/t-sql/queries/explain-transact-sql?view=azure-sqldw-latest)."
+				]
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "7caa4e25-8c51-40df-9812-ad71c95084e4"
+				},
+				"source": [
+					"Besides the `EXPLAIN` statement, you can also understand the plan details using the `sys.dm_pdw_request_steps` DMV.\n",
+					"\n",
+					"Query the `sys.dm_pdw_exec_requests` DMW to find your query id (this is for the query you executed previously):"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"azdata_cell_guid": "1e417c55-f60b-45eb-b23e-1e737994eecd",
+					"language": "sql"
+				},
+				"source": [
+					"SELECT  \r\n",
+					"    *\r\n",
+					"FROM    \r\n",
+					"    sys.dm_pdw_exec_requests\r\n",
+					"WHERE   \r\n",
+					"    [label] = 'Lab03: Heap'"
+				],
+				"execution_count": 3
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "abc9f248-16a0-4ab0-9427-0cce3567262e"
+				},
+				"source": [
+					"The result contains, among other things, the query id (`Request_id`), the label, and the original SQL statement:\n",
+					"\n",
+					"[![Retrieving the query id](https://github.com/solliancenet/azure-synapse-analytics-workshop-400/raw/master/day-02/media/lab3_query_id.png)](https://github.com/solliancenet/azure-synapse-analytics-workshop-400/blob/master/day-02/media/lab3_query_id.png)"
+				]
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "84859492-8880-4adf-bce6-673b26162f20"
+				},
+				"source": [
+					"<span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">With the query id from the previous step (</span>`QID2456`  <span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">&nbsp;in this case), you can now investigate the individual steps of the query:</span>"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "81997dfc-7fe2-4f13-b9f7-396730bcf34b"
+				},
+				"source": [
+					"SELECT\r\n",
+					"   *\r\n",
+					"FROM\r\n",
+					"    sys.dm_pdw_request_steps\r\n",
+					"WHERE\r\n",
+					"    request_id = 'QID2456'\r\n",
+					"ORDER BY\r\n",
+					"   step_index"
+				],
+				"execution_count": 4
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "411d172a-a2fa-427b-b456-03dfc27d0f7b"
+				},
+				"source": [
+					"The steps (indexed 0 to 4) are matching operations 2 to 6 from the query plan. Again, the culprit stands out: the step with index 2 describes the inter-partition data movement operation. By looking at the `TOTAL_ELAPSED_TIME` column one can clearly tell the largest part of the query time is generated by this step.\n",
+					"\n",
+					"[![Query execution steps](https://github.com/solliancenet/azure-synapse-analytics-workshop-400/raw/master/day-02/media/lab3_shuffle_move_2.png)](https://github.com/solliancenet/azure-synapse-analytics-workshop-400/blob/master/day-02/media/lab3_shuffle_move_2.png)"
+				]
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "92ed171e-4ad0-4d47-b7fd-077881cfd24c"
+				},
+				"source": [
+					"<span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">Get more details on the problematic step using the following SQL statement (replace the&nbsp;</span>  `request_id`  <span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">&nbsp;and&nbsp;</span>  `step_index`  <span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">&nbsp;values from the previous query results).</span>\n",
+					"\n",
+					"The results of the statement provide details about what happens on each distribution within the SQL pool."
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"language": "sql",
+					"azdata_cell_guid": "ae56a92b-3168-4f67-b1c6-5eeeae384bf4"
+				},
+				"source": [
+					"SELECT\r\n",
+					"*\r\n",
+					"FROM\r\n",
+					"    sys.dm_pdw_sql_requests\r\n",
+					"WHERE\r\n",
+					"    request_id = 'QID2456'\r\n",
+					"    AND step_index = 1"
+				],
+				"execution_count": 5
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "abebf3ef-09f3-42f0-8b5a-7bd6e1c57966"
+				},
+				"source": [
+					"<span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">Finally, you can use the following SQL statement to investigate data movement on the distributed databases:</span>"
+				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"azdata_cell_guid": "e2b95b8e-7c00-46b3-abd8-3cfdb0b6f797",
+					"language": "sql"
+				},
+				"source": [
+					"SELECT\r\n",
+					"    *\r\n",
+					"FROM\r\n",
+					"    sys.dm_pdw_dms_workers\r\n",
+					"WHERE\r\n",
+					"    request_id = 'QID2456'\r\n",
+					"    AND step_index = 2\r\n",
+					"ORDER BY\r\n",
+					"    distribution_id"
+				],
+				"execution_count": 6
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "7b47d27c-44cb-47b0-bf53-7c7ae9873ff5"
+				},
+				"source": [
+					"<span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">The results of the statement provide details about data being moved at each distribution. The&nbsp;</span> `ROWS_PROCESSED` <span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\">&nbsp;column is especially useful here to get an estimate of the magnitude of the data movement happening when the query is executed.</span>\n",
+					"\n",
+					"[![Query execution step data movement](https://github.com/solliancenet/azure-synapse-analytics-workshop-400/raw/master/day-02/media/lab3_shuffle_move_4.png)](https://github.com/solliancenet/azure-synapse-analytics-workshop-400/blob/master/day-02/media/lab3_shuffle_move_4.png)<span style=\"color: rgb(31, 35, 40); font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;; font-size: 16px; background-color: rgb(255, 255, 255);\"><br></span>"
+				]
+			},
+			{
+				"cell_type": "markdown",
+				"metadata": {
+					"azdata_cell_guid": "f437557e-cb7e-43d4-92db-2f6c94a2bda8"
+				},
+				"source": [
+					"Improve performance of this query by hash distributing the table (and potentially partitioning).  Reevaluate performance of the query against the new table"
+				]
+			}
+		]
+	}
+}

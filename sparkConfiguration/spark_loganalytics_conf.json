@@ -1,0 +1,17 @@
+{
+	"name": "spark_loganalytics_conf",
+	"properties": {
+		"configs": {
+			"spark.synapse.logAnalytics.enabled": "true",
+			"spark.synapse.logAnalytics.workspaceId": "3953e650-b811-4158-a197-0d0b2ca4be46",
+			"spark.synapse.logAnalytics.secret": "x116peXfNZPUE72uGRVy0OFkDZD+rfNhFzD38gVwyQy8wqH5Q66qa9EYtiAs0M3i0qEbDjgNav/WqH+slK/0Xw=="
+		},
+		"created": "2023-07-18T20:07:39.495Z",
+		"createdBy": "srram@azdemo.cloud",
+		"configMergeRule": {
+			"artifact.currentOperation.spark.synapse.logAnalytics.enabled": "replace",
+			"artifact.currentOperation.spark.synapse.logAnalytics.workspaceId": "replace",
+			"artifact.currentOperation.spark.synapse.logAnalytics.secret": "replace"
+		}
+	}
+}
